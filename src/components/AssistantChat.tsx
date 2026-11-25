@@ -1,3 +1,4 @@
+import type React from 'react';
 import { useState, type FormEvent } from 'react';
 import { askCopilot } from '../api/aurarouteClient.ts';
 import type { ChatTurn, TelemetryPayload, UserContext } from '../shared/types.ts';
@@ -17,6 +18,64 @@ const QUICK_PROMPTS = [
   'What precautions does my persona need right now?',
   'How do air quality and weather affect my travel mode?',
 ];
+
+function renderInlineSegments(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return (
+        <strong key={idx} className="font-semibold text-white">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      return (
+        <em key={idx} className="italic text-slate-300">
+          {part.slice(1, -1)}
+        </em>
+      );
+    }
+    return part;
+  });
+}
+
+function FormattedMessage({ content }: { content: string }) {
+  const lines = content.split('\n');
+  const blocks: React.ReactNode[] = [];
+  let listItems: string[] = [];
+
+  const flushList = (keyPrefix: number) => {
+    if (listItems.length === 0) return;
+    blocks.push(
+      <ul key={`list-${keyPrefix}`} className="list-disc list-inside space-y-1 my-1.5 text-slate-200">
+        {listItems.map((item, i) => (
+          <li key={i}>{renderInlineSegments(item)}</li>
+        ))}
+      </ul>
+    );
+    listItems = [];
+  };
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      listItems.push(trimmed.slice(2));
+    } else {
+      flushList(idx);
+      if (trimmed) {
+        blocks.push(
+          <p key={`p-${idx}`} className="my-1">
+            {renderInlineSegments(trimmed)}
+          </p>
+        );
+      }
+    }
+  });
+  flushList(lines.length);
+
+  return <div>{blocks}</div>;
+}
 
 export function AssistantChat({ telemetry, context }: AssistantChatProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -131,7 +190,7 @@ export function AssistantChat({ telemetry, context }: AssistantChatProps) {
               </span>
               {msg.engineLabel && <span>{msg.engineLabel}</span>}
             </div>
-            <div>{msg.content}</div>
+            <FormattedMessage content={msg.content} />
           </div>
         ))}
 

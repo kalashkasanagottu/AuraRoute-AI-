@@ -38,11 +38,18 @@ function formatHourLabel(isoTime: string): string {
   return parts[1] ? parts[1].slice(0, 5) : isoTime;
 }
 
-async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 9000): Promise<T> {
+async function fetchJsonWithTimeout<T>(
+  url: string,
+  timeoutMs = 9000,
+  extraHeaders?: Record<string, string>
+): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(url, { signal: controller.signal });
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      headers: extraHeaders,
+    });
     if (!resp.ok) {
       throw new Error(`Upstream API returned HTTP ${resp.status}`);
     }
@@ -52,39 +59,125 @@ async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 9000): Promise<T
   }
 }
 
+interface NominatimHit {
+  name?: string;
+  display_name?: string;
+  lat: string;
+  lon: string;
+  address?: {
+    suburb?: string;
+    neighbourhood?: string;
+    city?: string;
+    town?: string;
+    state?: string;
+    country?: string;
+  };
+}
+
+async function resolveViaNominatim(query: string, indiaOnly: boolean): Promise<LocationInfo | null> {
+  const params = new URLSearchParams({
+    q: query,
+    format: 'jsonv2',
+    limit: '1',
+    addressdetails: '1',
+  });
+  if (indiaOnly) {
+    params.set('countrycodes', 'in');
+  }
+
+  const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+  const isBrowser = typeof window !== 'undefined';
+  const headers = isBrowser ? undefined : { 'User-Agent': 'AuraRouteAI/1.0' };
+
+  try {
+    const hits = await fetchJsonWithTimeout<NominatimHit[]>(url, 6000, headers);
+    const hit = hits?.[0];
+    if (!hit) return null;
+    const lat = Number(hit.lat);
+    const lon = Number(hit.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    const addr = hit.address ?? {};
+    const primaryName =
+      hit.name || addr.suburb || addr.neighbourhood || addr.city || addr.town || query;
+    const regionParts = [addr.city || addr.town, addr.state].filter(
+      (v, idx, arr) => Boolean(v) && v !== primaryName && arr.indexOf(v) === idx
+    );
+
+    return {
+      name: primaryName,
+      region: regionParts.join(', ') || undefined,
+      country: addr.country || (indiaOnly ? 'India' : undefined),
+      latitude: lat,
+      longitude: lon,
+      timezone: 'auto',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveLocationByCity(city: string): Promise<LocationInfo> {
   const cleanCity = city.trim().slice(0, 80);
   if (!cleanCity) {
     throw new Error('City name cannot be empty.');
   }
+
   const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
     cleanCity
-  )}&count=1&language=en&format=json`;
+  )}&count=5&language=en&format=json`;
 
   const geo = await fetchJsonWithTimeout<{
     results?: Array<{
       name: string;
       admin1?: string;
       country?: string;
+      country_code?: string;
       latitude: number;
       longitude: number;
       timezone?: string;
     }>;
-  }>(geoUrl);
+  }>(geoUrl).catch(() => ({ results: [] }));
 
-  const hit = geo.results?.[0];
-  if (!hit) {
-    throw new Error(`Could not find location "${cleanCity}". Try a major city name.`);
+  const results = geo.results ?? [];
+  const indiaMatch = results.find(
+    (r) => r.country_code?.toUpperCase() === 'IN' || r.country?.toLowerCase() === 'india'
+  );
+  if (indiaMatch) {
+    return {
+      name: indiaMatch.name,
+      region: indiaMatch.admin1,
+      country: indiaMatch.country,
+      latitude: indiaMatch.latitude,
+      longitude: indiaMatch.longitude,
+      timezone: indiaMatch.timezone || 'auto',
+    };
   }
 
-  return {
-    name: hit.name,
-    region: hit.admin1,
-    country: hit.country,
-    latitude: hit.latitude,
-    longitude: hit.longitude,
-    timezone: hit.timezone || 'auto',
-  };
+  // Prefer Indian neighborhood/locality resolution (e.g., Whitefield, Koramangala) before non-Indian homonyms
+  const nominatimIndia = await resolveViaNominatim(cleanCity, true);
+  if (nominatimIndia) {
+    return nominatimIndia;
+  }
+
+  const fallback = results[0];
+  if (fallback) {
+    return {
+      name: fallback.name,
+      region: fallback.admin1,
+      country: fallback.country,
+      latitude: fallback.latitude,
+      longitude: fallback.longitude,
+      timezone: fallback.timezone || 'auto',
+    };
+  }
+
+  const nominatimGlobal = await resolveViaNominatim(cleanCity, false);
+  if (nominatimGlobal) {
+    return nominatimGlobal;
+  }
+
+  throw new Error(`Could not find location "${cleanCity}". Try a city or locality name.`);
 }
 
 export async function fetchLiveTelemetry(location: LocationInfo): Promise<TelemetryPayload> {

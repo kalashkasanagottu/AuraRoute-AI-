@@ -1,4 +1,8 @@
-import { evaluateDecision, synthesizeContextReply } from '../shared/decisionEngine.ts';
+import {
+  evaluateDecision,
+  extractMentionedLocation,
+  synthesizeContextReply,
+} from '../shared/decisionEngine.ts';
 import { fetchLiveTelemetry, resolveLocationByCity } from '../shared/telemetryService.ts';
 import type {
   AssistantRequestBody,
@@ -59,15 +63,32 @@ export async function askCopilot(payload: AssistantRequestBody): Promise<Assista
     // Fallback below when running plain `vite` dev without Netlify Functions emulator
   }
 
+  let activeTelemetry = payload.telemetry;
+  const mentionedPlace = extractMentionedLocation(payload.question);
+  if (
+    mentionedPlace &&
+    !payload.telemetry.location.name.toLowerCase().includes(mentionedPlace.toLowerCase())
+  ) {
+    try {
+      const resolved = await resolveLocationByCity(mentionedPlace);
+      activeTelemetry = await fetchLiveTelemetry(resolved);
+    } catch {
+      // Fall back to active telemetry
+    }
+  }
+
   const decision = evaluateDecision(
-    payload.telemetry.current,
-    payload.telemetry.hourly,
+    activeTelemetry.current,
+    activeTelemetry.hourly,
     payload.context
   );
+  const locationLabel = [activeTelemetry.location.name, activeTelemetry.location.region]
+    .filter(Boolean)
+    .join(', ');
   const answer = synthesizeContextReply(
     payload.question,
-    payload.telemetry.location.name,
-    payload.telemetry.current,
+    locationLabel || activeTelemetry.location.name,
+    activeTelemetry.current,
     payload.context,
     decision
   );

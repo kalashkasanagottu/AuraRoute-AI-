@@ -217,7 +217,7 @@ export function AssistantChat({ telemetry, context }: AssistantChatProps) {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask e.g. 'Is it safe to cycle at 6 PM?'"
+          placeholder="Ask e.g. 'What is the traffic at Whitefield?' or 'Best time to cycle?'"
           maxLength={600}
           className="flex-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
         />

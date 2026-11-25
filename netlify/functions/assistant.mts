@@ -3,9 +3,11 @@ import type { Config } from '@netlify/functions';
 import { GoogleGenAI } from '@google/genai';
 import {
   evaluateDecision,
+  extractMentionedLocation,
   PERSONA_PROFILES,
   synthesizeContextReply,
 } from '../../src/shared/decisionEngine.ts';
+import { fetchLiveTelemetry, resolveLocationByCity } from '../../src/shared/telemetryService.ts';
 import type { AssistantRequestBody, AssistantResponseBody } from '../../src/shared/types.ts';
 
 function sanitizeText(input: unknown, maxLen: number): string {
@@ -33,12 +35,32 @@ export default async (req: Request) => {
     return Response.json({ error: 'Missing required context or telemetry payload.' }, { status: 400 });
   }
 
+  let activeTelemetry = body.telemetry;
+  const mentionedPlace = extractMentionedLocation(question);
+  if (
+    mentionedPlace &&
+    !body.telemetry.location.name.toLowerCase().includes(mentionedPlace.toLowerCase())
+  ) {
+    try {
+      const resolved = await resolveLocationByCity(mentionedPlace);
+      activeTelemetry = await fetchLiveTelemetry(resolved);
+    } catch {
+      // Keep the current dashboard telemetry if the mentioned phrase is not a resolvable place
+    }
+  }
+
   const decision = evaluateDecision(
-    body.telemetry.current,
-    body.telemetry.hourly || [],
+    activeTelemetry.current,
+    activeTelemetry.hourly || [],
     body.context
   );
-  const locationName = sanitizeText(body.telemetry.location.name, 80) || 'Selected location';
+  const locationLabel = [
+    activeTelemetry.location.name,
+    activeTelemetry.location.region,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const locationName = sanitizeText(locationLabel, 100) || 'Selected location';
 
   const hasGatewayCreds = Boolean(
     process.env.GEMINI_API_KEY && process.env.GOOGLE_GEMINI_BASE_URL
@@ -56,6 +78,7 @@ export default async (req: Request) => {
       const systemPrompt = [
         'You are AuraRoute AI, a real-time environmental safety and urban mobility copilot.',
         'Base every recommendation strictly on the provided live telemetry, user context, and deterministic decision assessment.',
+        'If the user asks about live vehicle traffic or congestion speeds, clearly state that live road-traffic feeds are not connected and focus on weather/visibility road-delay risks.',
         'Keep responses concise, structured with clear bullet points, and directly actionable for the user persona.',
         'Never invent metrics that are not present in the telemetry.',
       ].join(' ');
@@ -64,7 +87,7 @@ export default async (req: Request) => {
         location: locationName,
         persona: persona.label,
         userContext: body.context,
-        liveTelemetry: body.telemetry.current,
+        liveTelemetry: activeTelemetry.current,
         deterministicDecision: {
           score: decision.score,
           verdict: decision.verdict,
@@ -102,7 +125,7 @@ export default async (req: Request) => {
   const fallbackAnswer = synthesizeContextReply(
     question,
     locationName,
-    body.telemetry.current,
+    activeTelemetry.current,
     body.context,
     decision
   );

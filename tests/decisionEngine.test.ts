@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateDecision, synthesizeContextReply } from '../src/shared/decisionEngine.ts';
+import {
+  evaluateDecision,
+  extractMentionedLocation,
+  synthesizeContextReply,
+} from '../src/shared/decisionEngine.ts';
 import type { EnvironmentalSnapshot, HourlyForecastSlot, UserContext } from '../src/shared/types.ts';
 
 const cleanSnap: EnvironmentalSnapshot = {
@@ -128,5 +132,30 @@ describe('Context Decision Engine', () => {
     expect(reply).toContain('New Delhi');
     expect(reply).toContain('165');
     expect(reply).toContain('N95');
+  });
+
+  it('extracts locality mentions and explains road traffic scope honestly', () => {
+    expect(extractMentionedLocation('what is the traffic at whitefield?')).toBe('whitefield');
+    expect(extractMentionedLocation('should I leave now?')).toBeNull();
+
+    const ctx: UserContext = {
+      persona: 'daily_commuter',
+      transportMode: 'car_transit',
+      timeHorizon: 'now',
+      asthmaOrRespiratory: false,
+      heatSensitive: false,
+      lowLightCaution: false,
+    };
+    const decision = evaluateDecision(pollutedSnap, sampleHourly, ctx);
+    const reply = synthesizeContextReply(
+      'what is the traffic at whitefield?',
+      'Whitefield (Kadugodi), Bengaluru',
+      pollutedSnap,
+      ctx,
+      decision
+    );
+    expect(reply).toContain('Whitefield (Kadugodi), Bengaluru');
+    expect(reply).toContain('Road Traffic Scope');
+    expect(reply).toContain('not connected');
   });
 });

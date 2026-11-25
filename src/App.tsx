@@ -9,7 +9,15 @@ import { HourlyTimeline } from './components/HourlyTimeline.tsx';
 import { AssistantChat } from './components/AssistantChat.tsx';
 import { MapPin, Navigation, RefreshCw, Radio } from 'lucide-react';
 
-const PRESET_CITIES = ['New Delhi', 'Bengaluru', 'Mumbai', 'London', 'Tokyo'];
+const PRESET_CITIES = [
+  'New Delhi',
+  'Bengaluru',
+  'Mumbai',
+  'Hyderabad',
+  'Chennai',
+  'Pune',
+  'Kolkata',
+];
 
 const DEFAULT_CONTEXT: UserContext = {
   persona: 'daily_commuter',

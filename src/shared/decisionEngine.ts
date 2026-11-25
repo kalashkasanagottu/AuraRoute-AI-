@@ -416,6 +416,37 @@ export function evaluateDecision(
   };
 }
 
+const IGNORED_PLACE_TOKENS = new Set([
+  'home',
+  'work',
+  'office',
+  'now',
+  'today',
+  'tonight',
+  'tomorrow',
+  'morning',
+  'afternoon',
+  'evening',
+  'night',
+  'all',
+  'peak',
+  'this',
+  'that',
+  'the',
+]);
+
+export function extractMentionedLocation(question: string): string | null {
+  const match = question.match(
+    /\b(?:at|in|near|around|for|to)\s+([a-zA-Z][a-zA-Z\s,-]{1,40}?)(?:\s+(?:now|today|tonight|tomorrow|right now|currently|please)\b|[?.!]|$)/i
+  );
+  if (!match) return null;
+  const candidate = match[1].trim().replace(/[,.\s]+$/, '');
+  if (!candidate || candidate.length < 3 || IGNORED_PLACE_TOKENS.has(candidate.toLowerCase())) {
+    return null;
+  }
+  return candidate;
+}
+
 export function synthesizeContextReply(
   question: string,
   locationName: string,
@@ -432,15 +463,47 @@ export function synthesizeContextReply(
     '',
   ];
 
-  if (qLower.includes('when') || qLower.includes('wait') || qLower.includes('best') || qLower.includes('time') || qLower.includes('window')) {
+  if (
+    qLower.includes('traffic') ||
+    qLower.includes('congestion') ||
+    qLower.includes('jam') ||
+    qLower.includes('road')
+  ) {
+    const weatherDelay =
+      current.precipitationProbPct >= 40 || current.precipitationMm >= 0.5 || current.visibilityKm < 3.5
+        ? 'Elevated weather-driven slowdown likely — wet roads or reduced visibility typically add +15% to +25% travel delay.'
+        : 'No major weather-induced road disruption right now (clear visibility and dry/low rain risk).';
+    lines.push(
+      `**Road Traffic Scope:** Live GPS vehicle-speed / congestion feeds (e.g., Google Maps or TomTom) are not connected, so real-time jam speeds are not estimated.`,
+      `**Weather & Visibility Road Impact for ${locationName}:** ${weatherDelay} (Rain chance **${Math.round(current.precipitationProbPct)}%**, visibility **${current.visibilityKm.toFixed(1)} km**, gusts **${Math.round(current.windGustsKmh)} km/h**, US AQI **${Math.round(current.usAqi)}**).`
+    );
+  } else if (
+    qLower.includes('when') ||
+    qLower.includes('wait') ||
+    qLower.includes('best') ||
+    qLower.includes('time') ||
+    qLower.includes('window')
+  ) {
     if (decision.optimalWindow) {
       lines.push(`**Timing Recommendation:** ${decision.optimalWindow.summary}`);
     }
-  } else if (qLower.includes('mask') || qLower.includes('aqi') || qLower.includes('air') || qLower.includes('breath') || qLower.includes('asthma')) {
+  } else if (
+    qLower.includes('mask') ||
+    qLower.includes('aqi') ||
+    qLower.includes('air') ||
+    qLower.includes('breath') ||
+    qLower.includes('asthma')
+  ) {
     lines.push(
       `**Air Quality Breakdown:** Live US AQI is **${Math.round(current.usAqi)}** (PM2.5 **${current.pm25.toFixed(1)} µg/m³**, PM10 **${current.pm10.toFixed(1)} µg/m³**).`
     );
-  } else if (qLower.includes('rain') || qLower.includes('wind') || qLower.includes('bike') || qLower.includes('car') || qLower.includes('walk')) {
+  } else if (
+    qLower.includes('rain') ||
+    qLower.includes('wind') ||
+    qLower.includes('bike') ||
+    qLower.includes('car') ||
+    qLower.includes('walk')
+  ) {
     lines.push(
       `**Mode & Weather Check:** Temperature feels like **${current.apparentTemperatureC.toFixed(1)}°C**, rain chance **${Math.round(current.precipitationProbPct)}%**, gusts **${Math.round(current.windGustsKmh)} km/h**, visibility **${current.visibilityKm.toFixed(1)} km**.`
     );

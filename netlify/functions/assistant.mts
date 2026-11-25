@@ -8,6 +8,7 @@ import {
   synthesizeContextReply,
 } from '../../src/shared/decisionEngine.ts';
 import { fetchLiveTelemetry, resolveLocationByCity } from '../../src/shared/telemetryService.ts';
+import { fetchLiveTraffic } from './trafficService.ts';
 import type { AssistantRequestBody, AssistantResponseBody } from '../../src/shared/types.ts';
 
 function sanitizeText(input: unknown, maxLen: number): string {
@@ -36,6 +37,7 @@ export default async (req: Request) => {
   }
 
   let activeTelemetry = body.telemetry;
+  const tomtomKey = typeof Netlify !== 'undefined' ? Netlify.env.get('TOMTOM_API_KEY') : undefined;
   const mentionedPlace = extractMentionedLocation(question);
   if (
     mentionedPlace &&
@@ -43,16 +45,30 @@ export default async (req: Request) => {
   ) {
     try {
       const resolved = await resolveLocationByCity(mentionedPlace);
-      activeTelemetry = await fetchLiveTelemetry(resolved);
+      const [tel, traffic] = await Promise.all([
+        fetchLiveTelemetry(resolved),
+        fetchLiveTraffic(resolved.latitude, resolved.longitude, tomtomKey),
+      ]);
+      activeTelemetry = { ...tel, ...(traffic ? { traffic } : {}) };
     } catch {
       // Keep the current dashboard telemetry if the mentioned phrase is not a resolvable place
+    }
+  } else if (!activeTelemetry.traffic && tomtomKey) {
+    const traffic = await fetchLiveTraffic(
+      activeTelemetry.location.latitude,
+      activeTelemetry.location.longitude,
+      tomtomKey
+    );
+    if (traffic) {
+      activeTelemetry = { ...activeTelemetry, traffic };
     }
   }
 
   const decision = evaluateDecision(
     activeTelemetry.current,
     activeTelemetry.hourly || [],
-    body.context
+    body.context,
+    activeTelemetry.traffic
   );
   const locationLabel = [
     activeTelemetry.location.name,
@@ -88,6 +104,7 @@ export default async (req: Request) => {
         persona: persona.label,
         userContext: body.context,
         liveTelemetry: activeTelemetry.current,
+        liveTraffic: activeTelemetry.traffic || null,
         deterministicDecision: {
           score: decision.score,
           verdict: decision.verdict,
@@ -127,7 +144,8 @@ export default async (req: Request) => {
     locationName,
     activeTelemetry.current,
     body.context,
-    decision
+    decision,
+    activeTelemetry.traffic
   );
 
   const respBody: AssistantResponseBody = {

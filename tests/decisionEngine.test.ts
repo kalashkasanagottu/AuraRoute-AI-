@@ -156,6 +156,43 @@ describe('Context Decision Engine', () => {
     );
     expect(reply).toContain('Whitefield (Kadugodi), Bengaluru');
     expect(reply).toContain('Road Traffic Scope');
-    expect(reply).toContain('not connected');
+    expect(reply).toContain('unavailable');
+  });
+
+  it('penalizes heavy live traffic congestion and reports live speeds when TomTom telemetry is present', () => {
+    const ctx: UserContext = {
+      persona: 'daily_commuter',
+      transportMode: 'car_transit',
+      timeHorizon: 'now',
+      asthmaOrRespiratory: false,
+      heatSensitive: false,
+      lowLightCaution: false,
+    };
+    const liveTraffic = {
+      currentSpeedKmh: 14,
+      freeFlowSpeedKmh: 35,
+      congestionPct: 60,
+      currentTravelTimeSec: 600,
+      freeFlowTravelTimeSec: 240,
+      delayMinutes: 6,
+      roadClosure: false,
+      confidence: 0.98,
+      roadClass: 'FRC3',
+    };
+    const decision = evaluateDecision(cleanSnap, sampleHourly, ctx, liveTraffic);
+    expect(decision.score).toBeLessThan(85);
+    expect(decision.riskFactors.some((r) => r.id === 'traffic')).toBe(true);
+
+    const reply = synthesizeContextReply(
+      'How is the traffic at Whitefield?',
+      'Whitefield, Karnataka',
+      cleanSnap,
+      ctx,
+      decision,
+      liveTraffic
+    );
+    expect(reply).toContain('14 km/h');
+    expect(reply).toContain('35 km/h');
+    expect(reply).toContain('60% slower');
   });
 });

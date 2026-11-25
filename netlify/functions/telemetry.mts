@@ -1,5 +1,6 @@
 import type { Config } from '@netlify/functions';
 import { fetchLiveTelemetry, resolveLocationByCity } from '../../src/shared/telemetryService.ts';
+import { fetchLiveTraffic } from './trafficService.ts';
 
 function parseCoordinate(raw: string | null, min: number, max: number): number | null {
   if (!raw) return null;
@@ -29,12 +30,20 @@ export default async (req: Request) => {
           }
         : await resolveLocationByCity(city || 'New Delhi');
 
-    const payload = await fetchLiveTelemetry(location);
-    return Response.json(payload, {
-      headers: {
-        'Cache-Control': 'public, max-age=60',
-      },
-    });
+    const tomtomKey = Netlify.env.get('TOMTOM_API_KEY');
+    const [payload, traffic] = await Promise.all([
+      fetchLiveTelemetry(location),
+      fetchLiveTraffic(location.latitude, location.longitude, tomtomKey),
+    ]);
+
+    return Response.json(
+      { ...payload, ...(traffic ? { traffic } : {}) },
+      {
+        headers: {
+          'Cache-Control': 'public, max-age=60',
+        },
+      }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unable to fetch live telemetry.';
     return Response.json({ error: message }, { status: 400 });

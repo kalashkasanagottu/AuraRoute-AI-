@@ -70,7 +70,7 @@ export default function App() {
 
   const assessment = useMemo(() => {
     if (!telemetry) return null;
-    return evaluateDecision(telemetry.current, telemetry.hourly, context);
+    return evaluateDecision(telemetry.current, telemetry.hourly, context, telemetry.traffic);
   }, [telemetry, context]);
 
   const handleCitySearch = (e: FormEvent) => {
@@ -243,7 +243,7 @@ export default function App() {
             ) : telemetry && assessment ? (
               <>
                 <VerdictCard assessment={assessment} locationLabel={locationDisplay} />
-                <TelemetryGrid snapshot={telemetry.current} />
+                <TelemetryGrid snapshot={telemetry.current} traffic={telemetry.traffic} />
                 <HourlyTimeline
                   hourlyScores={assessment.hourlyScores}
                   optimalWindow={assessment.optimalWindow}

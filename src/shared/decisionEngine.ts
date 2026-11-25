@@ -8,6 +8,7 @@ import type {
   PersonaId,
   RiskFactor,
   RiskSeverity,
+  TrafficSnapshot,
   TransportMode,
   UserContext,
 } from './types.ts';
@@ -176,7 +177,8 @@ function selectTargetSnapshot(
 
 function scoreSnapshot(
   snap: EnvironmentalSnapshot,
-  context: UserContext
+  context: UserContext,
+  traffic?: TrafficSnapshot
 ): { score: number; verdict: DecisionVerdict; riskFactors: RiskFactor[]; checklist: string[] } {
   const persona = PERSONA_PROFILES[context.persona];
   const transport = TRANSPORT_MODIFIERS[context.transportMode];
@@ -329,6 +331,45 @@ function scoreSnapshot(
     checklist.push('Apply SPF 30+ sunscreen and wear UV-protective sunglasses.');
   }
 
+  // 7. Live Road Traffic Congestion (only applied to current horizon when TomTom telemetry is present)
+  if (traffic && context.transportMode !== 'outdoor_workout') {
+    const modeTrafficWeight =
+      context.transportMode === 'car_transit'
+        ? 1.15
+        : context.transportMode === 'cycling_two_wheeler'
+          ? 0.85
+          : 0.4;
+
+    if (traffic.roadClosure) {
+      hasCritical = true;
+      totalPenalty += 35;
+      risks.push({
+        id: 'traffic',
+        label: 'Live Road Closure',
+        metricValue: 'Road closed nearby',
+        severity: 'critical',
+        penalty: 35,
+        reason: 'Live traffic telemetry indicates a road closure along the primary corridor.',
+      });
+      checklist.push('Reroute away from closed corridor or switch to metro/rail.');
+    } else if (traffic.congestionPct >= 20) {
+      const penalty = Math.round(Math.min(30, (traffic.congestionPct / 3.2) * modeTrafficWeight));
+      totalPenalty += penalty;
+      risks.push({
+        id: 'traffic',
+        label: 'Live Road Congestion',
+        metricValue: `${traffic.currentSpeedKmh} km/h vs ${traffic.freeFlowSpeedKmh} km/h free-flow (${traffic.congestionPct}% slower)`,
+        severity: severityFromPenalty(penalty, false),
+        penalty,
+        reason:
+          traffic.delayMinutes > 0
+            ? `Heavy traffic slows segment travel (+${traffic.delayMinutes} min segment delay) and increases roadside exhaust exposure.`
+            : `Traffic is ${traffic.congestionPct}% slower than free-flow speed in this corridor.`,
+      });
+      checklist.push('Expect slower road speeds; consider metro/alternate arterial roads or stagger departure.');
+    }
+  }
+
   if (checklist.length === 0) {
     checklist.push('Conditions are favorable; standard situational awareness is sufficient.');
   }
@@ -343,12 +384,17 @@ function scoreSnapshot(
 export function evaluateDecision(
   current: EnvironmentalSnapshot,
   hourly: HourlyForecastSlot[],
-  context: UserContext
+  context: UserContext,
+  traffic?: TrafficSnapshot
 ): DecisionAssessment {
   const persona = PERSONA_PROFILES[context.persona];
   const transport = TRANSPORT_MODIFIERS[context.transportMode];
   const activeSnap = selectTargetSnapshot(current, hourly, context.timeHorizon);
-  const { score, verdict, riskFactors, checklist } = scoreSnapshot(activeSnap, context);
+  const { score, verdict, riskFactors, checklist } = scoreSnapshot(
+    activeSnap,
+    context,
+    context.timeHorizon === 'now' ? traffic : undefined
+  );
 
   const hourlyScores: HourlyScore[] = hourly.slice(0, 12).map((slot) => {
     const slotSnap: EnvironmentalSnapshot = {
@@ -452,7 +498,8 @@ export function synthesizeContextReply(
   locationName: string,
   current: EnvironmentalSnapshot,
   context: UserContext,
-  decision: DecisionAssessment
+  decision: DecisionAssessment,
+  traffic?: TrafficSnapshot
 ): string {
   const persona = PERSONA_PROFILES[context.persona].label;
   const mode = TRANSPORT_MODIFIERS[context.transportMode].label;
@@ -473,10 +520,29 @@ export function synthesizeContextReply(
       current.precipitationProbPct >= 40 || current.precipitationMm >= 0.5 || current.visibilityKm < 3.5
         ? 'Elevated weather-driven slowdown likely — wet roads or reduced visibility typically add +15% to +25% travel delay.'
         : 'No major weather-induced road disruption right now (clear visibility and dry/low rain risk).';
-    lines.push(
-      `**Road Traffic Scope:** Live GPS vehicle-speed / congestion feeds (e.g., Google Maps or TomTom) are not connected, so real-time jam speeds are not estimated.`,
-      `**Weather & Visibility Road Impact for ${locationName}:** ${weatherDelay} (Rain chance **${Math.round(current.precipitationProbPct)}%**, visibility **${current.visibilityKm.toFixed(1)} km**, gusts **${Math.round(current.windGustsKmh)} km/h**, US AQI **${Math.round(current.usAqi)}**).`
-    );
+
+    if (traffic) {
+      const flowStatus = traffic.roadClosure
+        ? 'Road closure reported on nearest monitored segment'
+        : traffic.congestionPct >= 40
+          ? 'Heavy congestion'
+          : traffic.congestionPct >= 20
+            ? 'Moderate slowdown'
+            : 'Smooth / near free-flow';
+      const delayNote =
+        traffic.delayMinutes > 0 ? ` · +${traffic.delayMinutes} min segment delay` : '';
+      lines.push(
+        `**Live Road Traffic for ${locationName}:** **${flowStatus}** — current speed **${traffic.currentSpeedKmh} km/h** vs free-flow **${traffic.freeFlowSpeedKmh} km/h** (**${traffic.congestionPct}% slower**${delayNote}, confidence ${Math.round(
+          traffic.confidence * 100
+        )}%).`,
+        `**Weather & Visibility Road Impact:** ${weatherDelay} (Rain chance **${Math.round(current.precipitationProbPct)}%**, visibility **${current.visibilityKm.toFixed(1)} km**, gusts **${Math.round(current.windGustsKmh)} km/h**, US AQI **${Math.round(current.usAqi)}**).`
+      );
+    } else {
+      lines.push(
+        `**Road Traffic Scope:** Live vehicle-speed telemetry is unavailable in this local/offline mode, so real-time jam speeds are not estimated.`,
+        `**Weather & Visibility Road Impact for ${locationName}:** ${weatherDelay} (Rain chance **${Math.round(current.precipitationProbPct)}%**, visibility **${current.visibilityKm.toFixed(1)} km**, gusts **${Math.round(current.windGustsKmh)} km/h**, US AQI **${Math.round(current.usAqi)}**).`
+      );
+    }
   } else if (
     qLower.includes('when') ||
     qLower.includes('wait') ||

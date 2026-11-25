@@ -65,7 +65,7 @@ Browser (React 19 + TypeScript + Tailwind)
 
 ## 4. Assumptions Made
 
-1. **Telemetry & Geocoding Scope:** Uses the public Open-Meteo Weather & Air Quality APIs plus OpenStreetMap Nominatim locality fallback (prioritizing Indian cities & neighborhoods such as `Whitefield, Bengaluru`). Real-time vehicle-speed / road-traffic feeds (e.g., Google Maps or TomTom) are not connected, so traffic queries honestly explain that limitation while reporting weather-driven road delay & visibility risks.
+1. **Telemetry & Geocoding Scope:** Uses the public Open-Meteo Weather & Air Quality APIs, OpenStreetMap Nominatim locality fallback (prioritizing Indian cities & neighborhoods such as `Whitefield, Bengaluru`), and server-side **TomTom Traffic Flow** (`TOMTOM_API_KEY` stored securely as a Netlify runtime secret, never committed to the repository). When running locally without `TOMTOM_API_KEY`, traffic queries honestly note that live vehicle-speed feeds are unavailable offline while reporting weather-driven road delay risks.
 2. **Threshold Calibration:** Persona AQI thresholds are adapted conservatively around US EPA AQI bands, scaled down for high-ventilation (`Outdoor Athlete`) and vulnerable (`Respiratory-Sensitive`) profiles.
 3. **Privacy by Default:** Browser GPS coordinates and user context preferences stay ephemeral per request and are not persisted to a third-party database.
 4. **Resilient AI Availability:** When deployed on Netlify with AI Gateway active, conversational replies use Gemini (`gemini-2.5-flash`); in local/offline environments, the deterministic context engine supplies grounded answers without failing.

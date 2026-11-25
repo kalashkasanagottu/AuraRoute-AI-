@@ -1,11 +1,12 @@
-import type { EnvironmentalSnapshot } from '../shared/types.ts';
-import { Wind, Thermometer, Droplets, Eye, Sun, Activity } from 'lucide-react';
+import type { EnvironmentalSnapshot, TrafficSnapshot } from '../shared/types.ts';
+import { Wind, Thermometer, Droplets, Eye, Sun, Activity, Car } from 'lucide-react';
 
 interface TelemetryGridProps {
   snapshot: EnvironmentalSnapshot;
+  traffic?: TrafficSnapshot;
 }
 
-export function TelemetryGrid({ snapshot }: TelemetryGridProps) {
+export function TelemetryGrid({ snapshot, traffic }: TelemetryGridProps) {
   const cards = [
     {
       label: 'Temperature',
@@ -22,6 +23,23 @@ export function TelemetryGrid({ snapshot }: TelemetryGridProps) {
       accent: snapshot.usAqi > 150 ? 'text-rose-400' : snapshot.usAqi > 100 ? 'text-amber-400' : 'text-emerald-400',
     },
     {
+      label: 'Live Road Traffic',
+      value: traffic ? `${traffic.currentSpeedKmh} km/h` : 'Weather-only',
+      sub: traffic
+        ? traffic.roadClosure
+          ? 'Road closure reported'
+          : `${traffic.congestionPct}% slower vs ${traffic.freeFlowSpeedKmh} km/h free-flow`
+        : 'Live GPS flow unavailable locally',
+      icon: Car,
+      accent: !traffic
+        ? 'text-slate-400'
+        : traffic.roadClosure || traffic.congestionPct >= 40
+          ? 'text-rose-400'
+          : traffic.congestionPct >= 20
+            ? 'text-amber-400'
+            : 'text-emerald-400',
+    },
+    {
       label: 'Rain & Humidity',
       value: `${Math.round(snapshot.precipitationProbPct)}%`,
       sub: `${snapshot.precipitationMm.toFixed(1)} mm · ${Math.round(snapshot.humidityPct)}% RH`,
@@ -36,18 +54,11 @@ export function TelemetryGrid({ snapshot }: TelemetryGridProps) {
       accent: 'text-cyan-400',
     },
     {
-      label: 'Visibility',
+      label: 'Visibility & UV',
       value: `${snapshot.visibilityKm.toFixed(1)} km`,
-      sub: snapshot.weatherLabel,
-      icon: Eye,
-      accent: 'text-indigo-400',
-    },
-    {
-      label: 'UV Index',
-      value: `${snapshot.uvIndex.toFixed(1)}`,
-      sub: snapshot.uvIndex >= 6 ? 'High UV protection advised' : 'Low–Moderate UV',
-      icon: Sun,
-      accent: 'text-yellow-400',
+      sub: `${snapshot.weatherLabel} · UV ${snapshot.uvIndex.toFixed(1)}`,
+      icon: snapshot.uvIndex >= 6 ? Sun : Eye,
+      accent: snapshot.uvIndex >= 6 ? 'text-yellow-400' : 'text-indigo-400',
     },
   ];
 

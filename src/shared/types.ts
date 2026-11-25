@@ -67,10 +67,23 @@ export interface HourlyForecastSlot {
   weatherLabel: string;
 }
 
+export interface TrafficSnapshot {
+  currentSpeedKmh: number;
+  freeFlowSpeedKmh: number;
+  congestionPct: number;
+  currentTravelTimeSec: number;
+  freeFlowTravelTimeSec: number;
+  delayMinutes: number;
+  roadClosure: boolean;
+  confidence: number;
+  roadClass: string;
+}
+
 export interface TelemetryPayload {
   location: LocationInfo;
   current: EnvironmentalSnapshot;
   hourly: HourlyForecastSlot[];
+  traffic?: TrafficSnapshot;
   fetchedAtIso: string;
 }
 
